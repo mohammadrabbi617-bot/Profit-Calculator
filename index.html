@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AIB PLC Advanced Calculator - CM Rabbi</title>
+    
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- React & ReactDOM CDN -->
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    
+    <!-- Babel for JSX -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <!-- Firebase SDK (Version 8 Compat) -->
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
+
+    <style>
+        body { font-family: 'Segoe UI', Arial, sans-serif; }
+        .res-line { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; font-size: 0.95rem; gap: 10px; }
+        .label-text { white-space: nowrap; }
+        .val-profit { color: #00d4ff; font-weight: bold; text-align: right; }
+        .val-white { color: white; text-align: right; }
+        @keyframes fade-in { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+        .animate-in { animation: fade-in 0.3s ease-out forwards; }
+    </style>
+</head>
+<body class="bg-[#f4f7f6]">
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect } = React;
+
+        // Firebase Config
+        const firebaseConfig = {
+            apiKey: "AIzaSyCxO0RedANiZZz91p5VwWhXmfIowPKMFDc",
+            authDomain: "profit-4b313.firebaseapp.com",
+            databaseURL: "https://profit-4b313-default-rtdb.firebaseio.com",
+            projectId: "profit-4b313",
+            storageBucket: "profit-4b313.firebasestorage.app",
+            messagingSenderId: "169304347902",
+            appId: "1:169304347902:web:02cf5536a9301f4c2701af"
+        };
+
+        // Initialize Firebase
+        if (!firebase.apps.length) {
+            firebase.initializeApp(firebaseConfig);
+        }
+        const dbRef = firebase.database().ref('aib_calc_db');
+
+        const defaultDB = {
+            address: "Al-Arafah Islami Bank PLC\nS P S Bazar Outlet\nKayaria, Kalkini, Madaripur.",
+            mtdr: { "1": 7.50, "3": 8.50, "12": 12.00, "24": 13.50 },
+            itd: [{ amt: 500, yr: 2, prof: 1545 }, { amt: 1000, yr: 5, prof: 20817 }],
+            itdRate: 12.00,
+            adminPass: "As@04004"
+        };
+
+        function App() {
+            const [db, setDb] = useState(defaultDB);
+            const [currentMode, setCurrentMode] = useState('MTDR');
+            const [currentTax, setCurrentTax] = useState(10);
+            const [mainAmt, setMainAmt] = useState("");
+            const [duration, setDuration] = useState("");
+            const [isAdminOpen, setIsAdminOpen] = useState(false);
+            const [adminTab, setAdminTab] = useState('tabAddr');
+            const [isLoggingIn, setIsLoggingIn] = useState(false);
+            const [loginPass, setLoginPass] = useState("");
+
+            // Admin form states
+            const [editAddr, setEditAddr] = useState("");
+            const [newMMonth, setNewMMonth] = useState("");
+            const [newMRate, setNewMRate] = useState("");
+            const [itdGlobalRate, setItdGlobalRate] = useState("");
+            const [newIAmt, setNewIAmt] = useState("");
+            const [newIYr, setNewIYr] = useState("2");
+            const [newIProfit, setNewIProfit] = useState("");
+            const [oldPass, setOldPass] = useState("");
+            const [newPass, setNewPass] = useState("");
+            const [secCode, setSecCode] = useState("");
+
+            const securityCode = "842170";
+
+            useEffect(() => {
+                dbRef.on('value', (snapshot) => {
+                    const data = snapshot.val();
+                    if (data) {
+                        setDb(data);
+                        setEditAddr(data.address);
+                        setItdGlobalRate(data.itdRate.toString());
+                    } else {
+                        dbRef.set(defaultDB);
+                    }
+                });
+            }, []);
+
+            useEffect(() => {
+                if (currentMode === 'MTDR') {
+                    const months = Object.keys(db.mtdr).sort((a, b) => Number(a) - Number(b));
+                    if (months.length > 0 && !months.includes(duration)) setDuration(months[0]);
+                } else {
+                    const uniqueAmts = [...new Set(db.itd.map(i => i.amt))].sort((a, b) => a - b);
+                    if (uniqueAmts.length > 0) {
+                        const currentAmt = parseInt(mainAmt) || uniqueAmts[0];
+                        const durations = db.itd.filter(i => i.amt === currentAmt).map(i => i.yr);
+                        if (durations.length > 0 && !durations.includes(parseInt(duration))) setDuration(durations[0].toString());
+                    }
+                }
+            }, [currentMode, db, mainAmt]);
+
+            const calculate = () => {
+                const amtValue = parseFloat(mainAmt.replace(/,/g, '')) || 0;
+                if (amtValue === 0) return { details: null, total: "0.00", rate: "0.00%" };
+
+                if (currentMode === 'MTDR') {
+                    const rate = db.mtdr[duration] || 0;
+                    const netMonProf = ((amtValue * (rate / 100)) / 12) * ((100 - currentTax) / 100);
+                    const total = amtValue + (netMonProf * parseInt(duration));
+                    return {
+                        details: <div className="res-line"><span>Net Monthly Profit:</span><span className="val-profit">{netMonProf.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span></div>,
+                        total: total.toLocaleString('en-IN', { minimumFractionDigits: 2 }),
+                        rate: rate.toFixed(2) + "%"
+                    };
+                } else {
+                    const amt = parseInt(mainAmt);
+                    const yr = parseInt(duration);
+                    const item = db.itd.find(i => i.amt === amt && i.yr === yr);
+                    const totalSaved = amt * 12 * yr;
+                    const profit = item ? item.prof : 0;
+                    return {
+                        details: <><div className="res-line"><span>মোট জমা:</span><span className="val-white">{totalSaved.toLocaleString('en-IN')}</span></div><div className="res-line"><span>প্রাক্কলিত মুনাফা:</span><span className="val-profit">{profit.toLocaleString('en-IN')}</span></div></>,
+                        total: (totalSaved + profit).toLocaleString('en-IN'),
+                        rate: db.itdRate.toFixed(2) + "%"
+                    };
+                }
+            };
+
+            const { details, total, rate } = calculate();
+            const uniqueAmts = [...new Set(db.itd.map(i => i.amt))].sort((a, b) => a - b);
+
+            return (
+                <div className="min-h-screen p-2.5 flex justify-center items-start">
+                    <div className="bg-white w-full max-w-[500px] rounded-[20px] shadow-xl overflow-hidden border-t-[6px] border-[#006837]">
+                        <div className="text-center p-5 border-b border-[#eee]">
+                            <div className="text-[#333] text-[0.9rem] font-semibold">
+                                {db.address.split('\n').map((line, i) => <div key={i}>{line}</div>)}
+                            </div>
+                        </div>
+
+                        <div className="flex bg-[#f1f1f1] mx-5 my-4 rounded-[50px] p-1">
+                            <button className={`flex-1 p-3 rounded-[50px] font-bold ${currentMode === 'MTDR' ? 'bg-[#006837] text-white' : 'text-[#666]'}`} onClick={() => { setCurrentMode('MTDR'); setMainAmt(""); }}>MTDR</button>
+                            <button className={`flex-1 p-3 rounded-[50px] font-bold ${currentMode === 'ITD' ? 'bg-[#006837] text-white' : 'text-[#666]'}`} onClick={() => { setCurrentMode('ITD'); setMainAmt(uniqueAmts[0]?.toString() || ""); }}>ITD</button>
+                        </div>
+
+                        <div className="px-5 pb-5">
+                            <div className="mb-3">
+                                <label className="block font-semibold text-[#1e3a5f] text-xs mb-1">{currentMode === 'ITD' ? "Monthly Deposit" : "Deposit Amount"}</label>
+                                {currentMode === 'MTDR' ? 
+                                    <input type="tel" value={mainAmt} onChange={(e) => setMainAmt(e.target.value.replace(/[^0-9]/g, '').replace(/\B(?=(\d{3})+(?!\d))/g, ","))} placeholder="Input Amount" className="w-full p-2.5 border-2 rounded-[10px] outline-none focus:border-[#006837]" /> :
+                                    <select value={mainAmt} onChange={(e) => setMainAmt(e.target.value)} className="w-full p-2.5 border-2 rounded-[10px] outline-none">{uniqueAmts.map(a => <option key={a} value={a}>{a}</option>)}</select>
+                                }
+                            </div>
+
+                            <div className="mb-3">
+                                <label className="block font-semibold text-[#1e3a5f] text-xs mb-1">Duration</label>
+                                <select value={duration} onChange={(e) => setDuration(e.target.value)} className="w-full p-2.5 border-2 rounded-[10px] outline-none">
+                                    {currentMode === 'MTDR' ? 
+                                        Object.keys(db.mtdr).sort((a, b) => Number(a) - Number(b)).map(m => <option key={m} value={m}>{m} Months</option>) :
+                                        db.itd.filter(i => i.amt === parseInt(mainAmt)).map(i => <option key={i.yr} value={i.yr}>{i.yr} বছর</option>)
+                                    }
+                                </select>
+                            </div>
+
+                            <div className="mb-3">
+                                <label className="block font-semibold text-[#1e3a5f] text-xs mb-1">Profit Rate (%)</label>
+                                <input type="text" value={rate} readOnly className="w-full p-2.5 border-2 rounded-[10px] bg-[#f8f9fa]" />
+                            </div>
+
+                            {currentMode === 'MTDR' && (
+                                <div className="mb-3">
+                                    <label className="block font-semibold text-[#1e3a5f] text-xs mb-1">Income Tax Status</label>
+                                    <div className="flex bg-[#f1f1f1] rounded-[10px] p-1 gap-1">
+                                        <button className={`flex-1 p-2 rounded-[10px] text-xs font-bold ${currentTax === 10 ? 'bg-[#006837] text-white' : 'text-[#666]'}`} onClick={() => setCurrentTax(10)}>e-TIN (10%)</button>
+                                        <button className={`flex-1 p-2 rounded-[10px] text-xs font-bold ${currentTax === 15 ? 'bg-[#006837] text-white' : 'text-[#666]'}`} onClick={() => setCurrentTax(15)}>Non e-TIN (15%)</button>
+                                    </div>
+                                </div>
+                            )}
+
+                            <div className="bg-[#1e3a5f] text-white p-4 rounded-[15px] mt-4">
+                                {details}
+                                <div className="flex justify-between items-baseline mt-2 pt-2 border-t border-white/20 font-bold text-lg">
+                                    <span>{currentMode === 'ITD' ? "মুনাফাসহ মোট জমা:" : "Maturity Total Amount:"}</span>
+                                    <span className="text-[#4ade80]">{total}</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="bg-black text-[#ffd700] text-center p-3 font-bold">Created by CM Rabbi</div>
+                        <button className="text-[#ccc] w-full text-[10px] p-4" onClick={() => setIsLoggingIn(true)}>Admin Access</button>
+
+                        {isLoggingIn && (
+                            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+                                <div className="bg-white p-6 rounded-2xl shadow-xl w-full max-w-[300px]">
+                                    <h3 className="text-lg font-bold mb-4">Admin Login</h3>
+                                    <input type="password" placeholder="Password" value={loginPass} onChange={(e) => setLoginPass(e.target.value)} className="w-full p-2 border-2 rounded-[10px] mb-4 outline-none focus:border-[#006837]" onKeyDown={(e) => e.key === 'Enter' && (loginPass === db.adminPass ? (setIsAdminOpen(true), setIsLoggingIn(false), setLoginPass("")) : alert("ভুল পাসওয়ার্ড!"))} />
+                                    <div className="flex gap-2">
+                                        <button onClick={() => setIsLoggingIn(false)} className="flex-1 p-2 bg-gray-200 rounded-[10px]">Cancel</button>
+                                        <button onClick={() => loginPass === db.adminPass ? (setIsAdminOpen(true), setIsLoggingIn(false), setLoginPass("")) : alert("ভুল পাসওয়ার্ড!")} className="flex-1 p-2 bg-[#006837] text-white rounded-[10px]">Login</button>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {isAdminOpen && (
+                            <div className="p-5 bg-white border-t-2 border-dashed border-[#ccc]">
+                                <div className="flex gap-1 mb-4 bg-[#f8f9fa] p-1 rounded-[10px] overflow-x-auto">
+                                    {['tabAddr', 'tabMTDR', 'tabITD', 'tabSettings'].map(t => <button key={t} className={`flex-1 p-2 text-[10px] rounded-[8px] font-bold ${adminTab === t ? 'bg-[#1e3a5f] text-white' : 'text-[#555]'}`} onClick={() => setAdminTab(t)}>{t === 'tabAddr' ? 'ঠিকানা' : t === 'tabMTDR' ? 'MTDR' : t === 'tabITD' ? 'ITD' : 'সেটিংস'}</button>)}
+                                </div>
+                                
+                                {adminTab === 'tabAddr' && (
+                                    <div className="animate-in">
+                                        <textarea value={editAddr} onChange={(e) => setEditAddr(e.target.value)} className="w-full h-20 p-2 border rounded-[10px] outline-none" />
+                                        <button className="w-full p-3 bg-[#006837] text-white rounded-[8px] mt-2 font-bold" onClick={() => { dbRef.update({ address: editAddr }); alert("ঠিকানা আপডেট হয়েছে!"); }}>Update Address</button>
+                                    </div>
+                                )}
+
+                                {adminTab === 'tabMTDR' && (
+                                    <div className="animate-in">
+                                        {Object.keys(db.mtdr).sort((a, b) => Number(a) - Number(b)).map(m => (
+                                            <div key={m} className="flex justify-between p-2 border-b text-xs">
+                                                <span>{m} মাস ({db.mtdr[m]}%)</span>
+                                                <button className="bg-red-500 text-white px-2 rounded" onClick={() => { const newM = { ...db.mtdr }; delete newM[m]; dbRef.update({ mtdr: newM }); }}>Del</button>
+                                            </div>
+                                        ))}
+                                        <div className="bg-gray-50 p-2 mt-2 rounded">
+                                            <div className="flex gap-2">
+                                                <input type="number" placeholder="মাস" value={newMMonth} onChange={(e) => setNewMMonth(e.target.value)} className="flex-1 p-1 border rounded" />
+                                                <input type="number" step="0.01" placeholder="হার" value={newMRate} onChange={(e) => setNewMRate(e.target.value)} className="flex-1 p-1 border rounded" />
+                                            </div>
+                                            <button className="w-full p-2 bg-[#1e3a5f] text-white rounded mt-2" onClick={() => { if(newMMonth && newMRate) { dbRef.update({ mtdr: { ...db.mtdr, [newMMonth]: parseFloat(newMRate) } }); setNewMMonth(""); setNewMRate(""); } }}>Add MTDR</button>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {adminTab === 'tabITD' && (
+                                    <div className="animate-in">
+                                        <div className="flex gap-2 mb-2">
+                                            <input type="number" step="0.01" value={itdGlobalRate} onChange={(e) => setItdGlobalRate(e.target.value)} className="flex-1 p-2 border rounded" />
+                                            <button onClick={() => dbRef.update({ itdRate: parseFloat(itdGlobalRate) })} className="bg-[#006837] text-white px-4 rounded">Rate Update</button>
+                                        </div>
+                                        <table className="w-full text-[10px] mb-2">
+                                            <thead><tr className="bg-gray-100"><th>কিস্তি</th><th>বছর</th><th>মুনাফা</th><th>Action</th></tr></thead>
+                                            <tbody>{db.itd.map((item, idx) => <tr key={idx} className="text-center border-b"><td>{item.amt}</td><td>{item.yr}y</td><td>{item.prof}</td><td><button className="text-red-500" onClick={() => { const newI = [...db.itd]; newI.splice(idx, 1); dbRef.update({ itd: newI }); }}>Del</button></td></tr>)}</tbody>
+                                        </table>
+                                        <div className="bg-gray-50 p-2 rounded">
+                                            <input type="number" placeholder="কিস্তি" value={newIAmt} onChange={(e) => setNewIAmt(e.target.value)} className="w-full p-1 border rounded mb-1" />
+                                            <select value={newIYr} onChange={(e) => setNewIYr(e.target.value)} className="w-full p-1 border rounded mb-1"><option value="2">2y</option><option value="5">5y</option><option value="10">10y</option></select>
+                                            <input type="number" placeholder="মুনাফা" value={newIProfit} onChange={(e) => setNewIProfit(e.target.value)} className="w-full p-1 border rounded mb-1" />
+                                            <button className="w-full p-2 bg-[#1e3a5f] text-white rounded" onClick={() => { if(newIAmt && newIProfit) { dbRef.update({ itd: [...db.itd, { amt: parseInt(newIAmt), yr: parseInt(newIYr), prof: parseInt(newIProfit) }] }); setNewIAmt(""); setNewIProfit(""); } }}>Add ITD</button>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {adminTab === 'tabSettings' && (
+                                    <div className="animate-in space-y-2">
+                                        <input type="password" placeholder="Old Password" value={oldPass} onChange={(e) => setOldPass(e.target.value)} className="w-full p-2 border rounded" />
+                                        <input type="password" placeholder="New Password" value={newPass} onChange={(e) => setNewPass(e.target.value)} className="w-full p-2 border rounded" />
+                                        <input type="text" placeholder="Security Code" value={secCode} onChange={(e) => setSecCode(e.target.value)} className="w-full p-2 border rounded" />
+                                        <button className="w-full p-3 bg-[#006837] text-white rounded font-bold" onClick={() => { if(secCode === securityCode && oldPass === db.adminPass) { dbRef.update({ adminPass: newPass }); alert("Success!"); setOldPass(""); setNewPass(""); setSecCode(""); } else { alert("Error!"); } }}>Update Pass</button>
+                                    </div>
+                                )}
+
+                                <button onClick={() => setIsAdminOpen(false)} className="w-full bg-gray-200 p-3 rounded-[10px] mt-4 font-bold">Close</button>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
